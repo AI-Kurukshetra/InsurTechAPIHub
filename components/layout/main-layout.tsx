@@ -1,8 +1,8 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -10,8 +10,8 @@ import {
   createSupabaseClient,
   getCurrentUserProfile,
   getSupabaseConfigError,
+  readProfileCache,
   signOut,
-  type UserRole,
 } from "@/lib/supabase/client";
 
 type MainLayoutProps = {
@@ -28,25 +28,46 @@ export function MainLayout({ children }: MainLayoutProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [userRole, setUserRole] = useState<UserRole | null>(null);
   const [isSigningOut, setIsSigningOut] = useState(false);
+  const [authReady, setAuthReady] = useState(false);
   const [configError] = useState<string | null>(() => getSupabaseConfigError());
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (configError) {
       setIsAuthenticated(false);
-      setUserRole(null);
+      setAuthReady(true);
       return;
+    }
+
+    const cachedProfile = readProfileCache();
+    if (cachedProfile) {
+      setIsAuthenticated(true);
+      setAuthReady(true);
     }
 
     const supabase = createSupabaseClient();
     let isMounted = true;
 
     const checkUser = async () => {
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (isMounted) {
+        setIsAuthenticated(Boolean(sessionData.session?.user));
+      }
+
       const { data } = await getCurrentUserProfile(supabase);
       if (isMounted) {
-        setIsAuthenticated(Boolean(data));
-        setUserRole(data?.role ?? null);
+        if (data) {
+          setIsAuthenticated(true);
+        }
+        setAuthReady(true);
       }
     };
 
@@ -57,13 +78,11 @@ export function MainLayout({ children }: MainLayoutProps) {
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (!session?.user) {
         setIsAuthenticated(false);
-        setUserRole(null);
         return;
       }
 
       const { data } = await getCurrentUserProfile(supabase);
       setIsAuthenticated(Boolean(data));
-      setUserRole(data?.role ?? null);
     });
 
     return () => {
@@ -79,18 +98,33 @@ export function MainLayout({ children }: MainLayoutProps) {
     }
 
     setIsSigningOut(true);
+    setIsAuthenticated(false);
+    setAuthReady(true);
     try {
-      const supabase = createSupabaseClient();
-      await signOut(supabase);
-    } finally {
-      setIsSigningOut(false);
-      setIsAuthenticated(false);
-      setUserRole(null);
+      if (typeof window !== "undefined") {
+        window.sessionStorage.removeItem("insuretech_profile_cache_v1");
+        window.localStorage.removeItem("insuretech_profile_cache_v1");
+      }
       router.replace("/sign-in");
+    } finally {
+      const supabase = createSupabaseClient();
+      // Fire-and-forget sign out to avoid blocking UI on network.
+      void signOut(supabase).finally(() => {
+        if (!isMountedRef.current) {
+          return;
+        }
+        setToastMessage("Signed out successfully.");
+        setTimeout(() => {
+          if (isMountedRef.current) {
+            setToastMessage(null);
+          }
+        }, 3000);
+      });
+      setIsSigningOut(false);
     }
   }
 
-  const navLinks = userRole === "admin" ? [...baseNavLinks, { href: "/admin", label: "Admin Panel" }] : baseNavLinks;
+  const navLinks = baseNavLinks;
 
   return (
     <div className="flex min-h-screen flex-col bg-neutral-950 text-neutral-100">
@@ -115,14 +149,18 @@ export function MainLayout({ children }: MainLayoutProps) {
             ))}
           </nav>
 
-          {isAuthenticated ? (
-            <Button size="sm" variant="secondary" onClick={handleSignOut} disabled={isSigningOut}>
-              {isSigningOut ? "Signing Out..." : "Sign Out"}
-            </Button>
+          {authReady ? (
+            isAuthenticated ? (
+              <Button size="sm" variant="secondary" onClick={handleSignOut} disabled={isSigningOut}>
+                {isSigningOut ? "Signing Out..." : "Sign Out"}
+              </Button>
+            ) : (
+              <Button asChild size="sm">
+                <Link href="/sign-in">Sign In</Link>
+              </Button>
+            )
           ) : (
-            <Button asChild size="sm">
-              <Link href="/sign-in">Sign In</Link>
-            </Button>
+            <div className="h-9 w-20 rounded-md border border-neutral-800 bg-neutral-900" />
           )}
         </div>
       </header>
@@ -132,16 +170,27 @@ export function MainLayout({ children }: MainLayoutProps) {
       <footer className="border-t border-neutral-800 bg-neutral-950">
         <div className="mx-auto flex w-full max-w-6xl flex-col items-center gap-2 px-6 py-6 text-center text-sm text-neutral-400">
           <p>© {new Date().getFullYear()} InsurTech API Hub. All rights reserved.</p>
-          <div className="flex items-center gap-4">
-            <Link className="hover:text-cyan-300" href="/sign-in">
-              Sign In
-            </Link>
-            <Link className="hover:text-cyan-300" href="/sign-up">
-              Sign Up
-            </Link>
-          </div>
+          {!isAuthenticated ? (
+            <div className="flex items-center gap-4">
+              <Link className="hover:text-cyan-300" href="/sign-in">
+                Sign In
+              </Link>
+              <Link className="hover:text-cyan-300" href="/sign-up">
+                Sign Up
+              </Link>
+            </div>
+          ) : null}
         </div>
       </footer>
+
+      {toastMessage ? (
+        <div className="fixed bottom-6 right-6 z-50 rounded-xl border border-neutral-800 bg-neutral-900 px-4 py-3 text-sm text-neutral-100 shadow-lg">
+          {toastMessage}
+        </div>
+      ) : null}
     </div>
   );
 }
+
+
+

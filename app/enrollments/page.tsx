@@ -5,8 +5,15 @@ import { useRouter } from "next/navigation";
 
 import { MainLayout } from "@/components/layout/main-layout";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { createSupabaseClient, getCurrentUserProfile, getEnrollments } from "@/lib/supabase/client";
+import {
+  cancelEnrollment,
+  createSupabaseClient,
+  getCurrentUserProfile,
+  getEnrollments,
+  type UserRole,
+} from "@/lib/supabase/client";
 
 type EnrollmentWithPlan = {
   id: string;
@@ -14,6 +21,7 @@ type EnrollmentWithPlan = {
   plan_id: string;
   status: "active" | "cancelled";
   created_at: string;
+  user_email?: string | null;
   insurance_plans: {
     id: string;
     name: string;
@@ -35,6 +43,8 @@ export default function EnrollmentsPage() {
   const [enrollments, setEnrollments] = useState<EnrollmentWithPlan[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [profileRole, setProfileRole] = useState<UserRole | null>(null);
+  const [processingId, setProcessingId] = useState<string | null>(null);
 
   useEffect(() => {
     const supabase = createSupabaseClient();
@@ -45,6 +55,7 @@ export default function EnrollmentsPage() {
         router.replace("/sign-in");
         return;
       }
+      setProfileRole(profile.role);
 
       const { data, error } = await getEnrollments(profile.role, profile.id, supabase);
       if (error) {
@@ -61,6 +72,25 @@ export default function EnrollmentsPage() {
 
     loadEnrollments();
   }, [router]);
+
+  async function handleCancelEnrollment(enrollmentId: string) {
+    setProcessingId(enrollmentId);
+    setErrorMessage(null);
+    const supabase = createSupabaseClient();
+    const { data, error } = await cancelEnrollment(enrollmentId, supabase);
+    setProcessingId(null);
+
+    if (error) {
+      setErrorMessage(error.message);
+      return;
+    }
+
+    if (data) {
+      setEnrollments((current) =>
+        current.map((item) => (item.id === enrollmentId ? { ...item, status: data.status } : item)),
+      );
+    }
+  }
 
   return (
     <MainLayout>
@@ -94,6 +124,9 @@ export default function EnrollmentsPage() {
                 <Badge variant={enrollment.status === "active" ? "success" : "default"}>{enrollment.status}</Badge>
               </div>
               <p className="text-sm text-neutral-400">{enrollment.insurance_plans?.carrier ?? "Unknown Carrier"}</p>
+              {profileRole !== "employee" && enrollment.user_email ? (
+                <p className="text-xs text-neutral-500">Enrolled by: {enrollment.user_email ?? "Unknown user"}</p>
+              ) : null}
               <div className="mt-2 flex flex-wrap gap-4 text-xs text-neutral-500">
                 <span>Premium: {formatMoney(Number(enrollment.insurance_plans?.premium ?? 0))}</span>
                 <span>Deductible: {formatMoney(Number(enrollment.insurance_plans?.deductible ?? 0))}</span>
@@ -106,6 +139,17 @@ export default function EnrollmentsPage() {
                   })}
                 </span>
               </div>
+              {profileRole === "employee" && enrollment.status === "active" ? (
+                <div className="mt-4">
+                  <Button
+                    variant="secondary"
+                    onClick={() => handleCancelEnrollment(enrollment.id)}
+                    disabled={processingId === enrollment.id}
+                  >
+                    {processingId === enrollment.id ? "Cancelling..." : "Cancel Enrollment"}
+                  </Button>
+                </div>
+              ) : null}
             </div>
           ))}
         </CardContent>

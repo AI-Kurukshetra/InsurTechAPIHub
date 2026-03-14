@@ -8,7 +8,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { createSupabaseClient, deleteFromTable, getCurrentUserProfile } from "@/lib/supabase/client";
+import {
+  cancelEnrollment,
+  createEnrollment,
+  createSupabaseClient,
+  deleteFromTable,
+  getCurrentUserProfile,
+} from "@/lib/supabase/client";
 
 type InsurancePlan = {
   id: string;
@@ -58,7 +64,11 @@ export default function PlansPage() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [isEmployee, setIsEmployee] = useState(false);
   const [enrollmentStatusByPlan, setEnrollmentStatusByPlan] = useState<Record<string, "active" | "cancelled">>({});
+  const [enrollmentIdByPlan, setEnrollmentIdByPlan] = useState<Record<string, string>>({});
   const [deletingPlanId, setDeletingPlanId] = useState<string | null>(null);
+  const [enrollingPlanId, setEnrollingPlanId] = useState<string | null>(null);
+  const [cancellingPlanId, setCancellingPlanId] = useState<string | null>(null);
+  const [enrollErrorByPlan, setEnrollErrorByPlan] = useState<Record<string, string>>({});
   const [selectedPlanIds, setSelectedPlanIds] = useState<string[]>([]);
   const pageSize = 6;
 
@@ -116,21 +126,27 @@ export default function PlansPage() {
         const planIds = data.map((plan) => plan.id);
         const { data: enrollmentRows } = await supabase
           .from("enrollments")
-          .select("plan_id, status, created_at")
+          .select("id, plan_id, status, created_at")
           .eq("user_id", currentProfile.id)
           .in("plan_id", planIds)
           .order("created_at", { ascending: false });
 
         const nextStatuses: Record<string, "active" | "cancelled"> = {};
+        const nextIds: Record<string, string> = {};
         for (const row of enrollmentRows ?? []) {
           const planId = row.plan_id as string;
           if (!nextStatuses[planId]) {
             nextStatuses[planId] = row.status as "active" | "cancelled";
+            if (row.id) {
+              nextIds[planId] = row.id as string;
+            }
           }
         }
         setEnrollmentStatusByPlan(nextStatuses);
+        setEnrollmentIdByPlan(nextIds);
       } else {
         setEnrollmentStatusByPlan({});
+        setEnrollmentIdByPlan({});
       }
       setErrorMessage(null);
       setIsLoading(false);
@@ -181,6 +197,74 @@ export default function PlansPage() {
     }
 
     return isEmployer && currentUserId !== null && plan.created_by === currentUserId;
+  }
+
+  async function handleEnroll(planId: string) {
+    if (!currentUserId) {
+      return;
+    }
+
+    setEnrollErrorByPlan((current) => ({ ...current, [planId]: "" }));
+    setEnrollingPlanId(planId);
+    const supabase = createSupabaseClient();
+    const { error } = await createEnrollment({ userId: currentUserId, planId }, supabase);
+    setEnrollingPlanId(null);
+
+    if (error) {
+      setEnrollErrorByPlan((current) => ({
+        ...current,
+        [planId]: error.message,
+      }));
+      return;
+    }
+
+    const { data: enrollmentData } = await supabase
+      .from("enrollments")
+      .select("id, plan_id, status")
+      .eq("user_id", currentUserId)
+      .eq("plan_id", planId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    setEnrollmentStatusByPlan((current) => ({
+      ...current,
+      [planId]: enrollmentData?.status ?? "active",
+    }));
+    if (enrollmentData?.id) {
+      setEnrollmentIdByPlan((current) => ({
+        ...current,
+        [planId]: enrollmentData.id as string,
+      }));
+    }
+  }
+
+  async function handleCancelEnrollment(planId: string) {
+    const enrollmentId = enrollmentIdByPlan[planId];
+    if (!enrollmentId) {
+      return;
+    }
+
+    setEnrollErrorByPlan((current) => ({ ...current, [planId]: "" }));
+    setCancellingPlanId(planId);
+    const supabase = createSupabaseClient();
+    const { data, error } = await cancelEnrollment(enrollmentId, supabase);
+    setCancellingPlanId(null);
+
+    if (error) {
+      setEnrollErrorByPlan((current) => ({
+        ...current,
+        [planId]: error.message,
+      }));
+      return;
+    }
+
+    if (data) {
+      setEnrollmentStatusByPlan((current) => ({
+        ...current,
+        [planId]: data.status,
+      }));
+    }
   }
 
   const filteredPlans = useMemo(() => {
@@ -339,6 +423,34 @@ export default function PlansPage() {
                     </Button>
                   ) : null}
                 </div>
+                {isEmployee ? (
+                  <div className="space-y-2">
+                    <Button
+                      className="w-full"
+                      onClick={() => handleEnroll(plan.id)}
+                      disabled={enrollingPlanId === plan.id || enrollmentStatusByPlan[plan.id] === "active"}
+                    >
+                      {enrollingPlanId === plan.id
+                        ? "Enrolling..."
+                        : enrollmentStatusByPlan[plan.id] === "active"
+                          ? "Enrolled"
+                          : "Enroll Now"}
+                    </Button>
+                    {enrollmentStatusByPlan[plan.id] === "active" ? (
+                      <Button
+                        className="w-full"
+                        variant="secondary"
+                        onClick={() => handleCancelEnrollment(plan.id)}
+                        disabled={cancellingPlanId === plan.id}
+                      >
+                        {cancellingPlanId === plan.id ? "Cancelling..." : "Cancel Enrollment"}
+                      </Button>
+                    ) : null}
+                    {enrollErrorByPlan[plan.id] ? (
+                      <p className="text-xs text-red-300">{enrollErrorByPlan[plan.id]}</p>
+                    ) : null}
+                  </div>
+                ) : null}
                 {canManagePlan(plan) ? (
                   <Button
                     className="w-full"

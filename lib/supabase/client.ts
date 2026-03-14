@@ -20,6 +20,15 @@ type ProfileListItem = {
   created_at: string;
 };
 
+type ProfileCacheRecord = {
+  id: string;
+  email: string | null;
+  role: UserRole;
+  employer_request: boolean;
+  created_at: string;
+  cached_at: number;
+};
+
 type QueryFilters = {
   match?: RowMatch;
   limit?: number;
@@ -55,6 +64,8 @@ type EmployerCompanyPlanRecord = {
 type PublicSupabaseEnvName = "NEXT_PUBLIC_SUPABASE_URL" | "NEXT_PUBLIC_SUPABASE_ANON_KEY";
 
 let browserClient: SupabaseClient | undefined;
+const PROFILE_CACHE_KEY = "insuretech_profile_cache_v1";
+const PROFILE_CACHE_TTL_MS = 2 * 60 * 1000;
 
 function getEnv(name: PublicSupabaseEnvName): string | undefined {
   const value =
@@ -189,6 +200,67 @@ export async function getCurrentUserProfile(client: SupabaseClient = createSupab
   };
 }
 
+function readFromStorage(storage: Storage | null) {
+  if (!storage) {
+    return null;
+  }
+
+  try {
+    const raw = storage.getItem(PROFILE_CACHE_KEY);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw) as ProfileCacheRecord;
+    if (!parsed?.cached_at) {
+      return null;
+    }
+    if (Date.now() - parsed.cached_at > PROFILE_CACHE_TTL_MS) {
+      storage.removeItem(PROFILE_CACHE_KEY);
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function readProfileCache() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  return readFromStorage(window.sessionStorage) ?? readFromStorage(window.localStorage);
+}
+
+export function writeProfileCache(profile: {
+  id: string;
+  email: string | null;
+  role: UserRole;
+  employer_request: boolean;
+  created_at: string;
+}) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const record: ProfileCacheRecord = {
+    ...profile,
+    cached_at: Date.now(),
+  };
+
+  try {
+    window.sessionStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(record));
+  } catch {
+    // Ignore cache write errors.
+  }
+
+  try {
+    window.localStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(record));
+  } catch {
+    // Ignore cache write errors.
+  }
+}
+
 export async function requestEmployerAccess(userId: string, client: SupabaseClient = createSupabaseClient()) {
   return client.from("profiles").update({ employer_request: true }).eq("id", userId).select().maybeSingle<Profile>();
 }
@@ -272,7 +344,32 @@ export async function getEnrollments(
     return baseQuery.eq("user_id", userId);
   }
 
-  return baseQuery;
+  const { data, error } = await baseQuery;
+  if (error || !data) {
+    return { data, error };
+  }
+
+  const userIds = Array.from(new Set(data.map((row) => row.user_id))).filter(Boolean);
+  if (userIds.length === 0) {
+    return { data, error: null };
+  }
+
+  const { data: profiles, error: profilesError } = await client
+    .from("profiles")
+    .select("id, email")
+    .in("id", userIds);
+
+  if (profilesError) {
+    return { data, error: null };
+  }
+
+  const emailById = new Map((profiles ?? []).map((profile) => [profile.id as string, profile.email as string | null]));
+  const merged = data.map((row) => ({
+    ...row,
+    user_email: emailById.get(row.user_id) ?? null,
+  }));
+
+  return { data: merged, error: null };
 }
 
 export async function getUserEnrollmentForPlan(

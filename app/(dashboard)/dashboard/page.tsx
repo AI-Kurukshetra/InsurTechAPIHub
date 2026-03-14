@@ -13,11 +13,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import {
   approveEmployerRequest,
   createSupabaseClient,
-  getCurrentUser,
+  getSession,
   getEmployerRequests,
+  getEnrollments,
   getProfileByUserId,
+  getProfilesByRole,
   rejectEmployerRequest,
+  readProfileCache,
   requestEmployerAccess,
+  writeProfileCache,
   type UserRole,
 } from "@/lib/supabase/client";
 
@@ -35,6 +39,29 @@ type EmployerRequestItem = {
   created_at: string;
 };
 
+type EmployeeListItem = {
+  id: string;
+  email: string | null;
+  created_at: string;
+};
+
+type EnrollmentAdminItem = {
+  id: string;
+  status: "active" | "cancelled";
+  created_at: string;
+  user_id: string;
+  plan_id: string;
+  user_email?: string | null;
+  insurance_plans: {
+    id: string;
+    name: string;
+    carrier: string;
+    premium: number;
+    deductible: number;
+    coverage_type: string;
+  } | null;
+};
+
 type RoleAction = {
   label: string;
   href?: string;
@@ -43,11 +70,10 @@ type RoleAction = {
 function roleActions(role: UserRole): RoleAction[] {
   if (role === "admin") {
     return [
-      { label: "Admin Panel", href: "/admin" },
-      { label: "Manage Users", href: "/admin" },
+      { label: "Manage Users", href: "/employees" },
       { label: "View Employer Requests", href: "#employer-requests" },
-      { label: "Create Insurance Plans", href: "/plans" },
-      { label: "View Enrollments", href: "/enrollments" },
+      { label: "Create Insurance Plans", href: "/plans/new" },
+      { label: "View Enrollments", href: "#admin-enrollments" },
     ];
   }
 
@@ -73,24 +99,45 @@ export default function DashboardPage() {
   const [isSubmittingRequest, setIsSubmittingRequest] = useState(false);
   const [employerRequests, setEmployerRequests] = useState<EmployerRequestItem[]>([]);
   const [processingRequestId, setProcessingRequestId] = useState<string | null>(null);
+  const [employees, setEmployees] = useState<EmployeeListItem[]>([]);
+  const [isLoadingEmployees, setIsLoadingEmployees] = useState(false);
+  const [adminEnrollments, setAdminEnrollments] = useState<EnrollmentAdminItem[]>([]);
+  const [isLoadingEnrollments, setIsLoadingEnrollments] = useState(false);
+  const [enrollmentPage, setEnrollmentPage] = useState(1);
+  const enrollmentPageSize = 6;
 
   useEffect(() => {
     let isMounted = true;
     const supabase = createSupabaseClient();
 
     const loadUserAndProfile = async () => {
-      const { data: userData, error: userError } = await getCurrentUser(supabase);
+      const cachedProfile = readProfileCache();
+      if (cachedProfile && isMounted) {
+        setProfile({
+          id: cachedProfile.id,
+          email: cachedProfile.email,
+          role: cachedProfile.role,
+          employerRequest: cachedProfile.employer_request,
+          createdAt: cachedProfile.created_at,
+        });
+        setIsLoading(false);
+      }
+
+      const { data: sessionData, error: sessionError } = await getSession(supabase);
 
       if (!isMounted) {
         return;
       }
 
-      if (userError || !userData.user) {
+      if (sessionError || !sessionData.session?.user) {
         router.replace("/sign-in");
         return;
       }
 
-      const { data: profileData, error: profileError } = await getProfileByUserId(userData.user.id, supabase);
+      const { data: profileData, error: profileError } = await getProfileByUserId(
+        sessionData.session.user.id,
+        supabase,
+      );
 
       if (!isMounted) {
         return;
@@ -109,6 +156,13 @@ export default function DashboardPage() {
         employerRequest: profileData.employer_request,
         createdAt: profileData.created_at,
       });
+      writeProfileCache({
+        id: profileData.id,
+        email: profileData.email,
+        role: profileData.role,
+        employer_request: profileData.employer_request,
+        created_at: profileData.created_at,
+      });
 
       if (profileData.role === "admin") {
         const { data: requestData } = await getEmployerRequests(supabase);
@@ -121,6 +175,25 @@ export default function DashboardPage() {
             })),
           );
         }
+        setIsLoadingEmployees(true);
+        const { data: employeeData } = await getProfilesByRole("employee", supabase);
+        if (employeeData) {
+          setEmployees(
+            employeeData.map((item) => ({
+              id: item.id as string,
+              email: (item.email as string | null) ?? null,
+              created_at: item.created_at as string,
+            })),
+          );
+        }
+        setIsLoadingEmployees(false);
+
+        setIsLoadingEnrollments(true);
+        const { data: enrollmentData } = await getEnrollments("admin", profileData.id, supabase);
+        if (enrollmentData) {
+          setAdminEnrollments(enrollmentData as EnrollmentAdminItem[]);
+        }
+        setIsLoadingEnrollments(false);
       }
       setIsLoading(false);
     };
@@ -167,6 +240,15 @@ export default function DashboardPage() {
           }
         : current,
     );
+    if (profile) {
+      writeProfileCache({
+        id: profile.id,
+        email: profile.email,
+        role: profile.role,
+        employer_request: data?.employer_request ?? true,
+        created_at: profile.createdAt,
+      });
+    }
     setMessage("Employer access request submitted. An admin will review your request.");
   }
 
@@ -237,6 +319,13 @@ export default function DashboardPage() {
     day: "numeric",
     year: "numeric",
   });
+
+  const totalEnrollmentPages = Math.max(1, Math.ceil(adminEnrollments.length / enrollmentPageSize));
+  const currentEnrollmentPage = Math.min(enrollmentPage, totalEnrollmentPages);
+  const paginatedEnrollments = adminEnrollments.slice(
+    (currentEnrollmentPage - 1) * enrollmentPageSize,
+    currentEnrollmentPage * enrollmentPageSize,
+  );
 
   return (
     <MainLayout>
@@ -372,6 +461,112 @@ export default function DashboardPage() {
                 </div>
               </div>
             ))}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {profile.role === "admin" ? (
+        <Card id="admin-enrollments">
+          <CardHeader>
+            <CardTitle>Manage Employees</CardTitle>
+            <CardDescription>Current employee accounts in the system.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {isLoadingEmployees ? <p className="text-sm text-neutral-400">Loading employees...</p> : null}
+            {!isLoadingEmployees && employees.length === 0 ? (
+              <p className="text-sm text-neutral-400">No employees found.</p>
+            ) : null}
+            {employees.map((employee) => (
+              <div
+                key={employee.id}
+                className="flex flex-col gap-2 rounded-xl border border-neutral-800 bg-neutral-950/60 p-4 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div>
+                  <p className="font-medium text-neutral-100">{employee.email ?? "Unknown user"}</p>
+                  <p className="text-xs text-neutral-500">
+                    Joined{" "}
+                    {new Date(employee.created_at).toLocaleDateString("en-US", {
+                      month: "short",
+                      day: "numeric",
+                      year: "numeric",
+                    })}
+                  </p>
+                </div>
+                <Badge>Employee</Badge>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {profile.role === "admin" ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Enrollments</CardTitle>
+            <CardDescription>Latest plan enrollments across all users.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {isLoadingEnrollments ? <p className="text-sm text-neutral-400">Loading enrollments...</p> : null}
+            {!isLoadingEnrollments && adminEnrollments.length === 0 ? (
+              <p className="text-sm text-neutral-400">No enrollments recorded.</p>
+            ) : null}
+            {paginatedEnrollments.map((enrollment) => (
+              <div
+                key={enrollment.id}
+                className="flex flex-col gap-2 rounded-xl border border-neutral-800 bg-neutral-950/60 p-4"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="font-medium text-neutral-100">
+                    {enrollment.insurance_plans?.name ?? "Unknown Plan"}
+                  </p>
+                  <Badge variant={enrollment.status === "active" ? "success" : "default"}>{enrollment.status}</Badge>
+                </div>
+                <p className="text-sm text-neutral-400">
+                  {enrollment.insurance_plans?.carrier ?? "Unknown Carrier"}
+                </p>
+                {enrollment.user_email ? (
+                  <p className="text-xs text-neutral-500">Enrolled by: {enrollment.user_email}</p>
+                ) : null}
+                <div className="flex flex-wrap gap-4 text-xs text-neutral-500">
+                  <span>Premium: {Number(enrollment.insurance_plans?.premium ?? 0)}</span>
+                  <span>Deductible: {Number(enrollment.insurance_plans?.deductible ?? 0)}</span>
+                  <span>
+                    Enrolled on{" "}
+                    {new Date(enrollment.created_at).toLocaleDateString("en-US", {
+                      month: "short",
+                      day: "numeric",
+                      year: "numeric",
+                    })}
+                  </span>
+                </div>
+              </div>
+            ))}
+
+            {!isLoadingEnrollments && adminEnrollments.length > 0 ? (
+              <div className="flex flex-col items-center justify-between gap-3 pt-2 text-sm text-neutral-400 sm:flex-row">
+                <p>
+                  Showing page {currentEnrollmentPage} of {totalEnrollmentPages}
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={currentEnrollmentPage <= 1}
+                    onClick={() => setEnrollmentPage((current) => Math.max(1, current - 1))}
+                  >
+                    Previous
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={currentEnrollmentPage >= totalEnrollmentPages}
+                    onClick={() => setEnrollmentPage((current) => Math.min(totalEnrollmentPages, current + 1))}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            ) : null}
           </CardContent>
         </Card>
       ) : null}
