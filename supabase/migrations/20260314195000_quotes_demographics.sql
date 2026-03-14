@@ -1,0 +1,4 @@
+ALTER TABLE IF EXISTS public.quotes
+  ADD COLUMN IF NOT EXISTS age integer,
+  ADD COLUMN IF NOT EXISTS smoker boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS dependents integer NOT NULL DEFAULT 0;

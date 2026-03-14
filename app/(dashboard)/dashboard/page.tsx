@@ -74,6 +74,8 @@ function roleActions(role: UserRole): RoleAction[] {
       { label: "View Employer Requests", href: "#employer-requests" },
       { label: "Create Insurance Plans", href: "/plans/new" },
       { label: "View Enrollments", href: "#admin-enrollments" },
+      { label: "View Quotes", href: "/quotes" },
+      { label: "Manage Carriers", href: "/carriers" },
     ];
   }
 
@@ -82,12 +84,16 @@ function roleActions(role: UserRole): RoleAction[] {
       { label: "Manage Employees", href: "/employees" },
       { label: "View Company Plans", href: "/company-plans" },
       { label: "View Enrollments", href: "/enrollments" },
+      { label: "View Quotes", href: "/quotes" },
     ];
   }
 
   return [
     { label: "Browse Insurance Plans", href: "/plans" },
     { label: "My Enrollments", href: "/enrollments" },
+    { label: "My Quotes", href: "/quotes" },
+    { label: "Manage Dependents", href: "/dependents" },
+    { label: "Enrollment Wizard", href: "/enroll" },
   ];
 }
 
@@ -329,15 +335,27 @@ export default function DashboardPage() {
 
   return (
     <MainLayout>
-      <header className="rounded-2xl border border-neutral-800 bg-neutral-900 p-6 shadow-lg shadow-black/20">
-        <div className="flex items-center gap-3">
-          <Avatar>
-            <AvatarFallback>{userInitial}</AvatarFallback>
-          </Avatar>
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-neutral-100 sm:text-3xl">Dashboard</h1>
-            <p className="text-sm text-neutral-400">{profile.email ?? "Unknown user"}</p>
-            <p className="text-xs uppercase tracking-[0.2em] text-cyan-300">Role: {roleLabel}</p>
+      <header className="animate-fade-up rounded-2xl border border-neutral-800 bg-gradient-to-br from-neutral-900 via-neutral-950 to-neutral-900 p-6 shadow-lg shadow-black/30 transition">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3">
+            <Avatar>
+              <AvatarFallback>{userInitial}</AvatarFallback>
+            </Avatar>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-neutral-100 sm:text-3xl">Dashboard</h1>
+              <p className="text-sm text-neutral-400">{profile.email ?? "Unknown user"}</p>
+              <p className="text-xs uppercase tracking-[0.2em] text-cyan-300">Role: {roleLabel}</p>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button asChild variant="secondary">
+              <Link href="/plans">Browse Plans</Link>
+            </Button>
+            {profile.role === "employee" ? (
+              <Button asChild>
+                <Link href="/enroll">Enroll Now</Link>
+              </Button>
+            ) : null}
           </div>
         </div>
       </header>
@@ -349,16 +367,19 @@ export default function DashboardPage() {
       ) : null}
 
       <section className="grid gap-6 lg:grid-cols-12">
-        <Card className="lg:col-span-8">
+        <Card className="animate-fade-up-delay-1 lg:col-span-8 transition hover:-translate-y-0.5 hover:border-neutral-700 hover:shadow-xl hover:shadow-black/20">
           <CardHeader>
             <CardTitle>Role Actions</CardTitle>
             <CardDescription>Available actions based on your account role.</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
               {actions.map((action) => {
                 return (
-                  <Card key={action.label} className="border-neutral-800 shadow-none">
+                  <Card
+                    key={action.label}
+                    className="border-neutral-800 bg-neutral-950/60 shadow-none transition hover:-translate-y-0.5 hover:border-neutral-700"
+                  >
                     <CardHeader className="pb-3">
                       <CardTitle className="text-base">{action.label}</CardTitle>
                     </CardHeader>
@@ -374,7 +395,7 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        <Card className="lg:col-span-4">
+        <Card className="animate-fade-up-delay-1 lg:col-span-4 transition hover:-translate-y-0.5 hover:border-neutral-700 hover:shadow-xl hover:shadow-black/20">
           <CardHeader>
             <CardTitle>Account Overview</CardTitle>
             <CardDescription>Your profile and permissions.</CardDescription>
@@ -403,7 +424,7 @@ export default function DashboardPage() {
       </section>
 
       {profile.role === "employee" ? (
-        <Card>
+        <Card className="animate-fade-up-delay-2 transition hover:-translate-y-0.5 hover:border-neutral-700 hover:shadow-xl hover:shadow-black/20">
           <CardHeader>
             <CardTitle>Employer Access</CardTitle>
             <CardDescription>Request an employer role upgrade for organization management features.</CardDescription>
@@ -421,7 +442,7 @@ export default function DashboardPage() {
       ) : null}
 
       {profile.role === "admin" ? (
-        <Card id="employer-requests">
+        <Card id="employer-requests" className="animate-fade-up-delay-2 transition hover:-translate-y-0.5 hover:border-neutral-700 hover:shadow-xl hover:shadow-black/20">
           <CardHeader>
             <CardTitle>Employer Requests</CardTitle>
             <CardDescription>Review employees requesting employer role access.</CardDescription>
@@ -466,7 +487,7 @@ export default function DashboardPage() {
       ) : null}
 
       {profile.role === "admin" ? (
-        <Card id="admin-enrollments">
+        <Card id="admin-enrollments" className="animate-fade-up-delay-2 transition hover:-translate-y-0.5 hover:border-neutral-700 hover:shadow-xl hover:shadow-black/20">
           <CardHeader>
             <CardTitle>Manage Employees</CardTitle>
             <CardDescription>Current employee accounts in the system.</CardDescription>
@@ -500,7 +521,7 @@ export default function DashboardPage() {
       ) : null}
 
       {profile.role === "admin" ? (
-        <Card>
+        <Card className="animate-fade-up-delay-2 transition hover:-translate-y-0.5 hover:border-neutral-700 hover:shadow-xl hover:shadow-black/20">
           <CardHeader>
             <CardTitle>Enrollments</CardTitle>
             <CardDescription>Latest plan enrollments across all users.</CardDescription>

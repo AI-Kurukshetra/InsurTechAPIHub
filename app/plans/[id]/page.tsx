@@ -9,6 +9,8 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   addEmployerCompanyPlan,
   cancelEnrollment,
@@ -68,6 +70,9 @@ export default function PlanDetailsPage() {
   const [enrollment, setEnrollment] = useState<{ id: string; status: "active" | "cancelled" } | null>(null);
   const [isInCompanyPlans, setIsInCompanyPlans] = useState(false);
   const [isUpdatingCompanyPlans, setIsUpdatingCompanyPlans] = useState(false);
+  const [age, setAge] = useState("");
+  const [isSmoker, setIsSmoker] = useState(false);
+  const [dependents, setDependents] = useState("0");
 
   useEffect(() => {
     const supabase = createSupabaseClient();
@@ -258,37 +263,113 @@ export default function PlanDetailsPage() {
                         ? "Previous enrollment cancelled"
                         : "Not enrolled"}
                   </Badge>
-                  <Button
-                    onClick={async () => {
-                      if (!plan || !currentUserId) {
-                        return;
-                      }
+                  <div className="w-full rounded-xl border border-neutral-800 bg-neutral-950/60 p-4 text-sm text-neutral-300">
+                    <p className="font-medium text-neutral-100">Generate Quote</p>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                      <div className="space-y-2">
+                        <Label htmlFor="quote-age">Age</Label>
+                        <Input
+                          id="quote-age"
+                          type="number"
+                          min={18}
+                          max={100}
+                          value={age}
+                          onChange={(event) => setAge(event.target.value)}
+                          placeholder="e.g. 32"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="quote-dependents">Dependents</Label>
+                        <Input
+                          id="quote-dependents"
+                          type="number"
+                          min={0}
+                          max={10}
+                          value={dependents}
+                          onChange={(event) => setDependents(event.target.value)}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="quote-smoker">Smoker</Label>
+                        <select
+                          id="quote-smoker"
+                          className="h-11 w-full rounded-xl border border-neutral-700 bg-neutral-900 px-3 text-sm text-neutral-100 outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"
+                          value={isSmoker ? "yes" : "no"}
+                          onChange={(event) => setIsSmoker(event.target.value === "yes")}
+                        >
+                          <option value="no">No</option>
+                          <option value="yes">Yes</option>
+                        </select>
+                      </div>
+                    </div>
+                    <Button
+                      className="mt-4"
+                      onClick={async () => {
+                        if (!plan || !currentUserId) {
+                          return;
+                        }
 
-                      setActionMessage(null);
-                      setIsGeneratingQuote(true);
-                      const supabase = createSupabaseClient();
-                      const { error } = await createQuote(
-                        {
-                          userId: currentUserId,
-                          planId: plan.id,
-                          estimatedPremium: Number(plan.premium),
-                        },
-                        supabase,
-                      );
-                      setIsGeneratingQuote(false);
+                        const ageValue = Number(age);
+                        const dependentValue = Number(dependents);
+                        if (
+                          Number.isNaN(ageValue) ||
+                          ageValue < 18 ||
+                          ageValue > 100 ||
+                          Number.isNaN(dependentValue) ||
+                          dependentValue < 0 ||
+                          dependentValue > 10
+                        ) {
+                          setActionMessage("Please provide valid demographics (age 18-100, dependents 0-10).");
+                          return;
+                        }
 
-                      if (error) {
-                        setActionMessage(error.message);
-                        return;
-                      }
+                        const basePremium = Number(plan.premium);
+                        let multiplier = 1;
+                        if (ageValue < 30) {
+                          multiplier *= 0.9;
+                        } else if (ageValue <= 45) {
+                          multiplier *= 1.0;
+                        } else if (ageValue <= 60) {
+                          multiplier *= 1.2;
+                        } else {
+                          multiplier *= 1.5;
+                        }
+                        if (isSmoker) {
+                          multiplier *= 1.25;
+                        }
+                        const dependentFactor = Math.min(dependentValue * 0.05, 0.25);
+                        multiplier *= 1 + dependentFactor;
+                        const estimatedPremium = Math.round(basePremium * multiplier);
 
-                      setActionMessage("Quote generated successfully.");
-                    }}
-                    disabled={isGeneratingQuote}
-                    variant="secondary"
-                  >
-                    {isGeneratingQuote ? "Generating Quote..." : "Generate Quote"}
-                  </Button>
+                        setActionMessage(null);
+                        setIsGeneratingQuote(true);
+                        const supabase = createSupabaseClient();
+                        const { error } = await createQuote(
+                          {
+                            userId: currentUserId,
+                            planId: plan.id,
+                            estimatedPremium,
+                            age: ageValue,
+                            smoker: isSmoker,
+                            dependents: dependentValue,
+                          },
+                          supabase,
+                        );
+                        setIsGeneratingQuote(false);
+
+                        if (error) {
+                          setActionMessage(error.message);
+                          return;
+                        }
+
+                        setActionMessage(`Quote generated. Estimated premium: ${formatMoney(estimatedPremium)}.`);
+                      }}
+                      disabled={isGeneratingQuote}
+                      variant="secondary"
+                    >
+                      {isGeneratingQuote ? "Generating Quote..." : "Generate Quote"}
+                    </Button>
+                  </div>
                   <Button
                     onClick={async () => {
                       if (!plan || !currentUserId) {

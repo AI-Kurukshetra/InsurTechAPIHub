@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { createSupabaseClient, getCurrentUserProfile } from "@/lib/supabase/client";
+import { createSupabaseClient, getCarriers, getCurrentUserProfile } from "@/lib/supabase/client";
 
 function isMissingOwnershipColumnError(message?: string) {
   return Boolean(message && message.includes("insurance_plans.created_by"));
@@ -17,6 +17,9 @@ function isMissingOwnershipColumnError(message?: string) {
 
 export default function NewPlanPage() {
   const router = useRouter();
+  const [carriers, setCarriers] = useState<Array<{ id: string; name: string }>>([]);
+  const [carrierMode, setCarrierMode] = useState<"select" | "custom">("custom");
+  const [selectedCarrierId, setSelectedCarrierId] = useState<string>("");
   const [name, setName] = useState("");
   const [carrier, setCarrier] = useState("");
   const [premium, setPremium] = useState("");
@@ -59,6 +62,12 @@ export default function NewPlanPage() {
         .select("created_by")
         .limit(1);
       setSupportsOwnershipColumns(!isMissingOwnershipColumnError(ownershipColumnError?.message));
+
+      const { data: carrierData } = await getCarriers(supabase);
+      if (carrierData && carrierData.length > 0) {
+        setCarriers(carrierData.map((item) => ({ id: item.id as string, name: item.name as string })));
+        setCarrierMode("select");
+      }
       setIsLoading(false);
     };
 
@@ -80,9 +89,13 @@ export default function NewPlanPage() {
     const deductibleValue = Number(deductible);
     const copayValue = Number(copay);
     const outOfPocketMaxValue = Number(outOfPocketMax);
+    const carrierName =
+      carrierMode === "select"
+        ? carriers.find((item) => item.id === selectedCarrierId)?.name ?? ""
+        : carrier;
     if (
       !name.trim() ||
-      !carrier.trim() ||
+      !carrierName.trim() ||
       !coverageType.trim() ||
       !networkType.trim() ||
       !prescriptionCoverage.trim() ||
@@ -103,7 +116,7 @@ export default function NewPlanPage() {
     const supabase = createSupabaseClient();
     const basePayload = {
       name,
-      carrier,
+      carrier: carrierName,
       premium: premiumValue,
       deductible: deductibleValue,
       coverage_type: coverageType,
@@ -177,7 +190,43 @@ export default function NewPlanPage() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="carrier">Carrier</Label>
-              <Input id="carrier" value={carrier} onChange={(event) => setCarrier(event.target.value)} />
+              {carriers.length > 0 ? (
+                <div className="space-y-2">
+                  <select
+                    id="carrier"
+                    className="h-11 w-full rounded-xl border border-neutral-700 bg-neutral-900 px-3 text-sm text-neutral-100 outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"
+                    value={carrierMode === "select" ? selectedCarrierId : "custom"}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      if (value === "custom") {
+                        setCarrierMode("custom");
+                        setSelectedCarrierId("");
+                        setCarrier("");
+                      } else {
+                        setCarrierMode("select");
+                        setSelectedCarrierId(value);
+                      }
+                    }}
+                  >
+                    <option value="">Select a carrier</option>
+                    {carriers.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name}
+                      </option>
+                    ))}
+                    <option value="custom">Other (enter manually)</option>
+                  </select>
+                  {carrierMode === "custom" ? (
+                    <Input
+                      placeholder="Enter carrier name"
+                      value={carrier}
+                      onChange={(event) => setCarrier(event.target.value)}
+                    />
+                  ) : null}
+                </div>
+              ) : (
+                <Input id="carrier" value={carrier} onChange={(event) => setCarrier(event.target.value)} />
+              )}
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">

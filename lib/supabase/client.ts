@@ -43,6 +43,9 @@ type QuoteRecord = {
   user_id: string;
   plan_id: string;
   estimated_premium: number;
+  age: number | null;
+  smoker: boolean;
+  dependents: number;
   created_at: string;
 };
 
@@ -58,6 +61,21 @@ type EmployerCompanyPlanRecord = {
   id: string;
   employer_id: string;
   plan_id: string;
+  created_at: string;
+};
+
+type CarrierRecord = {
+  id: string;
+  name: string;
+  created_at: string;
+};
+
+type DependentRecord = {
+  id: string;
+  user_id: string;
+  name: string;
+  relationship: string;
+  age: number | null;
   created_at: string;
 };
 
@@ -301,7 +319,7 @@ export async function getProfilesByRole(role: UserRole, client: SupabaseClient =
 }
 
 export async function createQuote(
-  payload: { userId: string; planId: string; estimatedPremium: number },
+  payload: { userId: string; planId: string; estimatedPremium: number; age?: number; smoker?: boolean; dependents?: number },
   client: SupabaseClient = createSupabaseClient(),
 ) {
   return client
@@ -310,6 +328,9 @@ export async function createQuote(
       user_id: payload.userId,
       plan_id: payload.planId,
       estimated_premium: payload.estimatedPremium,
+      age: payload.age ?? null,
+      smoker: payload.smoker ?? false,
+      dependents: payload.dependents ?? 0,
     })
     .select()
     .maybeSingle<QuoteRecord>();
@@ -447,6 +468,55 @@ export async function getEmployerCompanyPlanForPlan(
     .eq("employer_id", employerId)
     .eq("plan_id", planId)
     .maybeSingle<EmployerCompanyPlanRecord>();
+}
+
+export async function getCarriers(client: SupabaseClient = createSupabaseClient()) {
+  return client
+    .from("insurance_carriers")
+    .select("id, name, created_at")
+    .order("created_at", { ascending: false })
+    .returns<CarrierRecord[]>();
+}
+
+export async function createCarrier(name: string, client: SupabaseClient = createSupabaseClient()) {
+  return client
+    .from("insurance_carriers")
+    .insert({ name })
+    .select("id, name, created_at")
+    .maybeSingle<CarrierRecord>();
+}
+
+export async function deleteCarrier(carrierId: string, client: SupabaseClient = createSupabaseClient()) {
+  return client.from("insurance_carriers").delete().eq("id", carrierId);
+}
+
+export async function getDependents(userId: string, client: SupabaseClient = createSupabaseClient()) {
+  return client
+    .from("dependents")
+    .select("id, user_id, name, relationship, age, created_at")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .returns<DependentRecord[]>();
+}
+
+export async function createDependent(
+  payload: { userId: string; name: string; relationship: string; age?: number | null },
+  client: SupabaseClient = createSupabaseClient(),
+) {
+  return client
+    .from("dependents")
+    .insert({
+      user_id: payload.userId,
+      name: payload.name,
+      relationship: payload.relationship,
+      age: payload.age ?? null,
+    })
+    .select("id, user_id, name, relationship, age, created_at")
+    .maybeSingle<DependentRecord>();
+}
+
+export async function deleteDependent(dependentId: string, client: SupabaseClient = createSupabaseClient()) {
+  return client.from("dependents").delete().eq("id", dependentId);
 }
 
 export async function selectFromTable(

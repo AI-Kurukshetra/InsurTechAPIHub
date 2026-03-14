@@ -27,12 +27,13 @@ const baseNavLinks = [
 export function MainLayout({ children }: MainLayoutProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
-  const [authReady, setAuthReady] = useState(false);
   const [configError] = useState<string | null>(() => getSupabaseConfigError());
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const isMountedRef = useRef(true);
+  const [initialCachedProfile] = useState(() => readProfileCache());
+  const [isAuthenticated, setIsAuthenticated] = useState(() => Boolean(initialCachedProfile));
+  const [authReady, setAuthReady] = useState(() => Boolean(configError) || Boolean(initialCachedProfile));
 
   useEffect(() => {
     return () => {
@@ -42,15 +43,7 @@ export function MainLayout({ children }: MainLayoutProps) {
 
   useEffect(() => {
     if (configError) {
-      setIsAuthenticated(false);
-      setAuthReady(true);
       return;
-    }
-
-    const cachedProfile = readProfileCache();
-    if (cachedProfile) {
-      setIsAuthenticated(true);
-      setAuthReady(true);
     }
 
     const supabase = createSupabaseClient();
@@ -100,27 +93,25 @@ export function MainLayout({ children }: MainLayoutProps) {
     setIsSigningOut(true);
     setIsAuthenticated(false);
     setAuthReady(true);
-    try {
-      if (typeof window !== "undefined") {
-        window.sessionStorage.removeItem("insuretech_profile_cache_v1");
-        window.localStorage.removeItem("insuretech_profile_cache_v1");
-      }
-      router.replace("/sign-in");
-    } finally {
-      const supabase = createSupabaseClient();
-      // Fire-and-forget sign out to avoid blocking UI on network.
-      void signOut(supabase).finally(() => {
-        if (!isMountedRef.current) {
-          return;
+    if (typeof window !== "undefined") {
+      window.sessionStorage.removeItem("insuretech_profile_cache_v1");
+      window.localStorage.removeItem("insuretech_profile_cache_v1");
+    }
+
+    const supabase = createSupabaseClient();
+    const signOutPromise = signOut(supabase).catch(() => null);
+    const timeoutPromise = new Promise((resolve) => setTimeout(resolve, 800));
+    await Promise.race([signOutPromise, timeoutPromise]);
+
+    router.replace("/sign-in");
+    setIsSigningOut(false);
+    if (isMountedRef.current) {
+      setToastMessage("Signed out successfully.");
+      setTimeout(() => {
+        if (isMountedRef.current) {
+          setToastMessage(null);
         }
-        setToastMessage("Signed out successfully.");
-        setTimeout(() => {
-          if (isMountedRef.current) {
-            setToastMessage(null);
-          }
-        }, 3000);
-      });
-      setIsSigningOut(false);
+      }, 3000);
     }
   }
 

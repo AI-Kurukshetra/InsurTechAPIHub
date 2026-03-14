@@ -13,6 +13,7 @@ import {
   createEnrollment,
   createSupabaseClient,
   deleteFromTable,
+  getCarriers,
   getCurrentUserProfile,
 } from "@/lib/supabase/client";
 
@@ -54,6 +55,8 @@ function getPlanOwnerLabel(plan: InsurancePlan) {
 export default function PlansPage() {
   const [plans, setPlans] = useState<InsurancePlan[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
+  const [carrierFilter, setCarrierFilter] = useState("all");
+  const [carriers, setCarriers] = useState<Array<{ id: string; name: string }>>([]);
   const [sortBy, setSortBy] = useState<"name" | "premium" | "deductible">("name");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
   const [page, setPage] = useState(1);
@@ -122,6 +125,10 @@ export default function PlansPage() {
       }
 
       setPlans(data ?? []);
+      const { data: carrierData } = await getCarriers(supabase);
+      if (carrierData && carrierData.length > 0) {
+        setCarriers(carrierData.map((item) => ({ id: item.id as string, name: item.name as string })));
+      }
       if (currentProfile?.role === "employee" && currentProfile.id && data && data.length > 0) {
         const planIds = data.map((plan) => plan.id);
         const { data: enrollmentRows } = await supabase
@@ -275,7 +282,12 @@ export default function PlansPage() {
           return plan.name.toLowerCase().includes(term) || plan.carrier.toLowerCase().includes(term);
         });
 
-    return [...searchedPlans].sort((a, b) => {
+    const filteredByCarrier =
+      carrierFilter === "all"
+        ? searchedPlans
+        : searchedPlans.filter((plan) => plan.carrier.toLowerCase() === carrierFilter.toLowerCase());
+
+    return [...filteredByCarrier].sort((a, b) => {
       if (sortBy === "name") {
         return sortOrder === "asc" ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name);
       }
@@ -288,7 +300,7 @@ export default function PlansPage() {
         ? Number(a.deductible) - Number(b.deductible)
         : Number(b.deductible) - Number(a.deductible);
     });
-  }, [plans, searchTerm, sortBy, sortOrder]);
+  }, [plans, searchTerm, sortBy, sortOrder, carrierFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filteredPlans.length / pageSize));
   const currentPage = Math.min(page, totalPages);
@@ -311,6 +323,11 @@ export default function PlansPage() {
           >
             <Link href={`/plans/compare?ids=${selectedPlanIds.join(",")}`}>Compare Selected ({selectedPlanIds.length})</Link>
           </Button>
+          {isEmployee ? (
+            <Button asChild variant="secondary">
+              <Link href="/enroll">Enrollment Wizard</Link>
+            </Button>
+          ) : null}
           {isAdmin || isEmployer ? (
             <Button asChild>
               <Link href="/plans/new">Create Insurance Plan</Link>
@@ -333,6 +350,18 @@ export default function PlansPage() {
             />
           </div>
           <div className="flex gap-2">
+            <select
+              className="h-11 w-full rounded-xl border border-neutral-700 bg-neutral-900 px-3 text-sm text-neutral-100 outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"
+              value={carrierFilter}
+              onChange={(event) => setCarrierFilter(event.target.value)}
+            >
+              <option value="all">All Carriers</option>
+              {carriers.map((carrier) => (
+                <option key={carrier.id} value={carrier.name}>
+                  {carrier.name}
+                </option>
+              ))}
+            </select>
             <select
               className="h-11 w-full rounded-xl border border-neutral-700 bg-neutral-900 px-3 text-sm text-neutral-100 outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"
               value={sortBy}
