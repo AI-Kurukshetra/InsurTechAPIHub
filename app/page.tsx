@@ -1,7 +1,4 @@
-import Link from "next/link";
-
 import { MainLayout } from "@/components/layout/main-layout";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 export default function Home() {
@@ -19,14 +16,6 @@ export default function Home() {
             Compare insurance plans side-by-side, review premiums and coverage in minutes, and
             make confident enrollment decisions.
           </p>
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <Button asChild>
-              <Link href="/sign-up">Get Started</Link>
-            </Button>
-            <Button asChild variant="secondary">
-              <Link href="/sign-in">Sign In</Link>
-            </Button>
-          </div>
         </div>
 
         <Card>

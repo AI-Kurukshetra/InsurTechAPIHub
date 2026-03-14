@@ -9,7 +9,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { createSupabaseClient, getCarriers, getCurrentUserProfile } from "@/lib/supabase/client";
+import {
+  createSupabaseClient,
+  getCarriers,
+  getCurrentUserProfile,
+  readProfileCache,
+} from "@/lib/supabase/client";
 
 function isMissingOwnershipColumnError(message?: string) {
   return Boolean(message && message.includes("insurance_plans.created_by"));
@@ -32,6 +37,10 @@ export default function NewPlanPage() {
   const [includesDental, setIncludesDental] = useState(false);
   const [includesVision, setIncludesVision] = useState(false);
   const [includesTelemedicine, setIncludesTelemedicine] = useState(true);
+  const [minAge, setMinAge] = useState("");
+  const [maxAge, setMaxAge] = useState("");
+  const [requiresNonSmoker, setRequiresNonSmoker] = useState(false);
+  const [maxDependents, setMaxDependents] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -43,6 +52,13 @@ export default function NewPlanPage() {
     const supabase = createSupabaseClient();
 
     const validateRole = async () => {
+      const cachedProfile = readProfileCache();
+      if (cachedProfile && (cachedProfile.role === "admin" || cachedProfile.role === "employer")) {
+        setCurrentUserId(cachedProfile.id);
+        setCurrentUserRole(cachedProfile.role);
+        setIsLoading(false);
+      }
+
       const { data, error } = await getCurrentUserProfile(supabase);
       if (error || !data) {
         router.replace("/sign-in");
@@ -57,13 +73,13 @@ export default function NewPlanPage() {
       setCurrentUserId(data.id);
       setCurrentUserRole(data.role);
 
-      const { error: ownershipColumnError } = await supabase
-        .from("insurance_plans")
-        .select("created_by")
-        .limit(1);
-      setSupportsOwnershipColumns(!isMissingOwnershipColumnError(ownershipColumnError?.message));
+      const [ownershipResult, carriersResult] = await Promise.all([
+        supabase.from("insurance_plans").select("created_by").limit(1),
+        getCarriers(supabase),
+      ]);
+      setSupportsOwnershipColumns(!isMissingOwnershipColumnError(ownershipResult.error?.message));
 
-      const { data: carrierData } = await getCarriers(supabase);
+      const carrierData = carriersResult.data;
       if (carrierData && carrierData.length > 0) {
         setCarriers(carrierData.map((item) => ({ id: item.id as string, name: item.name as string })));
         setCarrierMode("select");
@@ -89,26 +105,38 @@ export default function NewPlanPage() {
     const deductibleValue = Number(deductible);
     const copayValue = Number(copay);
     const outOfPocketMaxValue = Number(outOfPocketMax);
+    const minAgeValue = minAge ? Number(minAge) : null;
+    const maxAgeValue = maxAge ? Number(maxAge) : null;
+    const maxDependentsValue = maxDependents ? Number(maxDependents) : null;
     const carrierName =
       carrierMode === "select"
         ? carriers.find((item) => item.id === selectedCarrierId)?.name ?? ""
         : carrier;
-    if (
-      !name.trim() ||
-      !carrierName.trim() ||
-      !coverageType.trim() ||
-      !networkType.trim() ||
-      !prescriptionCoverage.trim() ||
-      Number.isNaN(premiumValue) ||
-      Number.isNaN(deductibleValue) ||
-      Number.isNaN(copayValue) ||
-      Number.isNaN(outOfPocketMaxValue) ||
-      premiumValue < 0 ||
-      deductibleValue < 0 ||
-      copayValue < 0 ||
-      outOfPocketMaxValue < 0
-    ) {
-      setMessage("Please provide valid benefit details. Numeric fields must be non-negative.");
+    const validationErrors: string[] = [];
+    if (!name.trim()) validationErrors.push("Plan name is required.");
+    if (!carrierName.trim()) validationErrors.push("Carrier is required.");
+    if (!coverageType.trim()) validationErrors.push("Coverage type is required.");
+    if (!networkType.trim()) validationErrors.push("Network type is required.");
+    if (!prescriptionCoverage.trim()) validationErrors.push("Prescription coverage is required.");
+    if (premium.trim() === "" || Number.isNaN(premiumValue) || premiumValue < 0)
+      validationErrors.push("Monthly premium must be a non-negative number.");
+    if (deductible.trim() === "" || Number.isNaN(deductibleValue) || deductibleValue < 0)
+      validationErrors.push("Deductible must be a non-negative number.");
+    if (copay.trim() === "" || Number.isNaN(copayValue) || copayValue < 0)
+      validationErrors.push("Copay must be a non-negative number.");
+    if (outOfPocketMax.trim() === "" || Number.isNaN(outOfPocketMaxValue) || outOfPocketMaxValue < 0)
+      validationErrors.push("Out-of-pocket max must be a non-negative number.");
+    if (minAge && (Number.isNaN(minAgeValue) || minAgeValue < 0 || minAgeValue > 120))
+      validationErrors.push("Minimum age must be between 0 and 120.");
+    if (maxAge && (Number.isNaN(maxAgeValue) || maxAgeValue < 0 || maxAgeValue > 120))
+      validationErrors.push("Maximum age must be between 0 and 120.");
+    if (minAgeValue !== null && maxAgeValue !== null && minAgeValue > maxAgeValue)
+      validationErrors.push("Minimum age cannot be greater than maximum age.");
+    if (maxDependents && (Number.isNaN(maxDependentsValue) || maxDependentsValue < 0 || maxDependentsValue > 20))
+      validationErrors.push("Max dependents must be between 0 and 20.");
+
+    if (validationErrors.length > 0) {
+      setMessage(validationErrors[0]);
       setIsSubmitting(false);
       return;
     }
@@ -127,6 +155,10 @@ export default function NewPlanPage() {
       includes_dental: includesDental,
       includes_vision: includesVision,
       includes_telemedicine: includesTelemedicine,
+      min_age: minAgeValue,
+      max_age: maxAgeValue,
+      requires_non_smoker: requiresNonSmoker,
+      max_dependents: maxDependentsValue,
     };
 
     const payload = supportsOwnershipColumns
@@ -137,24 +169,70 @@ export default function NewPlanPage() {
         }
       : basePayload;
 
-    const { error } = await supabase.from("insurance_plans").insert(payload);
-    setIsSubmitting(false);
-
-    if (error) {
-      if (
-        currentUserRole === "employer" &&
-        error.message.toLowerCase().includes("row level security")
-      ) {
-        setMessage(
-          "Employer plan creation is blocked by RLS. Apply the plan ownership migration (20260314190000_plan_ownership_rls.sql) in Supabase, then retry.",
-        );
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        setMessage("Your session has expired. Please sign in again.");
         return;
       }
-      setMessage(error.message);
-      return;
-    }
 
-    router.replace("/plans");
+      const insertPromise = fetch("/api/plans", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify(payload),
+      }).then(async (response) => {
+        if (response.ok) {
+          return { error: null as { message: string } | null };
+        }
+        let errorMessage = "Failed to create plan.";
+        try {
+          const body = (await response.json()) as { error?: string };
+          if (body.error) {
+            errorMessage = body.error;
+          }
+        } catch {
+          // ignore parse errors
+        }
+        return { error: { message: errorMessage } };
+      });
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error("Request timed out while creating the plan. Please retry.")), 15000);
+      });
+
+      const { error } = await Promise.race([insertPromise, timeoutPromise]);
+
+      if (error) {
+        if (typeof window !== "undefined") {
+          window.sessionStorage.setItem("plan_create_status", `error:${error.message}`);
+        }
+        if (currentUserRole === "employer" && error.message.toLowerCase().includes("row level security")) {
+          setMessage(
+            "Employer plan creation is blocked by RLS. Apply the plan ownership migration (20260314190000_plan_ownership_rls.sql) in Supabase, then retry.",
+          );
+          return;
+        }
+        setMessage(error.message);
+        return;
+      }
+
+      if (typeof window !== "undefined") {
+        window.sessionStorage.setItem("plan_create_status", "success");
+      }
+      router.replace("/plans");
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Failed to create plan. Please try again.";
+      if (typeof window !== "undefined") {
+        window.sessionStorage.setItem("plan_create_status", `error:${errorMessage}`);
+      }
+      setMessage(errorMessage);
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   if (isLoading) {
@@ -306,6 +384,37 @@ export default function NewPlanPage() {
                 />
                 Includes Telemedicine
               </label>
+            </div>
+
+            <div className="rounded-xl border border-neutral-800 bg-neutral-950/60 p-4">
+              <p className="text-sm font-medium text-neutral-100">Eligibility Rules (optional)</p>
+              <div className="mt-3 grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="minAge">Minimum Age</Label>
+                  <Input id="minAge" type="number" value={minAge} onChange={(event) => setMinAge(event.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="maxAge">Maximum Age</Label>
+                  <Input id="maxAge" type="number" value={maxAge} onChange={(event) => setMaxAge(event.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="maxDependents">Max Dependents</Label>
+                  <Input
+                    id="maxDependents"
+                    type="number"
+                    value={maxDependents}
+                    onChange={(event) => setMaxDependents(event.target.value)}
+                  />
+                </div>
+                <label className="flex items-center gap-2 text-sm text-neutral-300">
+                  <input
+                    type="checkbox"
+                    checked={requiresNonSmoker}
+                    onChange={(event) => setRequiresNonSmoker(event.target.checked)}
+                  />
+                  Requires Non-Smoker
+                </label>
+              </div>
             </div>
 
             {ownershipWarning ? (
