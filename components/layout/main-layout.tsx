@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
   createSupabaseClient,
+  clearSupabaseAuthStorage,
   getCurrentUserProfile,
   getSupabaseConfigError,
   readProfileCache,
@@ -102,6 +103,7 @@ export function MainLayout({ children }: MainLayoutProps) {
     const signOutPromise = signOut(supabase).catch(() => null);
     const timeoutPromise = new Promise((resolve) => setTimeout(resolve, 800));
     await Promise.race([signOutPromise, timeoutPromise]);
+    clearSupabaseAuthStorage();
 
     router.replace("/sign-in");
     setIsSigningOut(false);

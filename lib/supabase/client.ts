@@ -279,6 +279,26 @@ export function writeProfileCache(profile: {
   }
 }
 
+export function clearSupabaseAuthStorage() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const supabaseUrl = getEnv("NEXT_PUBLIC_SUPABASE_URL") ?? "";
+  const refMatch = supabaseUrl.match(/^https?:\/\/([^./]+)\.supabase\.co/i);
+  if (!refMatch) {
+    return;
+  }
+
+  const projectRef = refMatch[1];
+  const authKey = `sb-${projectRef}-auth-token`;
+  try {
+    window.localStorage.removeItem(authKey);
+  } catch {
+    // Ignore storage errors.
+  }
+}
+
 export async function requestEmployerAccess(userId: string, client: SupabaseClient = createSupabaseClient()) {
   return client.from("profiles").update({ employer_request: true }).eq("id", userId).select().maybeSingle<Profile>();
 }

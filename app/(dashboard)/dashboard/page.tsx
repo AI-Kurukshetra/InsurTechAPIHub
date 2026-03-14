@@ -94,6 +94,7 @@ function roleActions(role: UserRole): RoleAction[] {
     { label: "My Quotes", href: "/quotes" },
     { label: "Manage Dependents", href: "/dependents" },
     { label: "Enrollment Wizard", href: "/enroll" },
+    { label: "Plan Recommendations", href: "/recommendations" },
   ];
 }
 
