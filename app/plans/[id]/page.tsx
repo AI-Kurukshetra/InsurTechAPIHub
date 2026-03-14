@@ -38,6 +38,10 @@ type InsurancePlan = {
   includes_dental: boolean;
   includes_vision: boolean;
   includes_telemedicine: boolean;
+  min_age: number | null;
+  max_age: number | null;
+  requires_non_smoker: boolean;
+  max_dependents: number | null;
   created_by: string | null;
   created_at: string;
 };
@@ -73,6 +77,37 @@ export default function PlanDetailsPage() {
   const [age, setAge] = useState("");
   const [isSmoker, setIsSmoker] = useState(false);
   const [dependents, setDependents] = useState("0");
+  const eligibility = useMemo(() => {
+    if (!plan) {
+      return { isEligible: null as boolean | null, message: null as string | null };
+    }
+
+    const ageValue = Number(age);
+    const dependentsValue = Number(dependents);
+    if (Number.isNaN(ageValue) || ageValue <= 0 || Number.isNaN(dependentsValue) || dependentsValue < 0) {
+      return { isEligible: null, message: null };
+    }
+
+    const violations: string[] = [];
+    if (plan.min_age !== null && ageValue < plan.min_age) {
+      violations.push(`Minimum age ${plan.min_age}`);
+    }
+    if (plan.max_age !== null && ageValue > plan.max_age) {
+      violations.push(`Maximum age ${plan.max_age}`);
+    }
+    if (plan.requires_non_smoker && isSmoker) {
+      violations.push("Non-smoker required");
+    }
+    if (plan.max_dependents !== null && dependentsValue > plan.max_dependents) {
+      violations.push(`Max dependents ${plan.max_dependents}`);
+    }
+
+    if (violations.length > 0) {
+      return { isEligible: false, message: `Not eligible: ${violations.join(", ")}` };
+    }
+
+    return { isEligible: true, message: "Eligible based on current inputs." };
+  }, [plan, age, dependents, isSmoker]);
 
   useEffect(() => {
     const supabase = createSupabaseClient();
@@ -91,7 +126,7 @@ export default function PlanDetailsPage() {
       const { data: ownershipData, error: ownershipError } = await supabase
         .from("insurance_plans")
         .select(
-          "id, name, carrier, premium, deductible, coverage_type, network_type, copay, out_of_pocket_max, prescription_coverage, includes_dental, includes_vision, includes_telemedicine, created_by, created_at",
+          "id, name, carrier, premium, deductible, coverage_type, network_type, copay, out_of_pocket_max, prescription_coverage, includes_dental, includes_vision, includes_telemedicine, min_age, max_age, requires_non_smoker, max_dependents, created_by, created_at",
         )
         .eq("id", planId)
         .maybeSingle<InsurancePlan>();
@@ -108,7 +143,7 @@ export default function PlanDetailsPage() {
         const { data: fallbackData, error: fallbackError } = await supabase
           .from("insurance_plans")
           .select(
-            "id, name, carrier, premium, deductible, coverage_type, network_type, copay, out_of_pocket_max, prescription_coverage, includes_dental, includes_vision, includes_telemedicine, created_at",
+            "id, name, carrier, premium, deductible, coverage_type, network_type, copay, out_of_pocket_max, prescription_coverage, includes_dental, includes_vision, includes_telemedicine, min_age, max_age, requires_non_smoker, max_dependents, created_at",
           )
           .eq("id", planId)
           .maybeSingle();
@@ -151,6 +186,7 @@ export default function PlanDetailsPage() {
 
     loadPlan();
   }, [planId, router]);
+
 
   return (
     <MainLayout>
@@ -264,7 +300,7 @@ export default function PlanDetailsPage() {
                         : "Not enrolled"}
                   </Badge>
                   <div className="w-full rounded-xl border border-neutral-800 bg-neutral-950/60 p-4 text-sm text-neutral-300">
-                    <p className="font-medium text-neutral-100">Generate Quote</p>
+                    <p className="font-medium text-neutral-100">Eligibility + Quote</p>
                     <div className="mt-3 grid gap-3 sm:grid-cols-3">
                       <div className="space-y-2">
                         <Label htmlFor="quote-age">Age</Label>
@@ -301,10 +337,15 @@ export default function PlanDetailsPage() {
                           <option value="yes">Yes</option>
                         </select>
                       </div>
+                  </div>
+                  {eligibility.message ? (
+                    <div className="mt-3">
+                      <Badge variant={eligibility.isEligible ? "success" : "default"}>{eligibility.message}</Badge>
                     </div>
-                    <Button
-                      className="mt-4"
-                      onClick={async () => {
+                  ) : null}
+                  <Button
+                    className="mt-4"
+                    onClick={async () => {
                         if (!plan || !currentUserId) {
                           return;
                         }
@@ -320,6 +361,11 @@ export default function PlanDetailsPage() {
                           dependentValue > 10
                         ) {
                           setActionMessage("Please provide valid demographics (age 18-100, dependents 0-10).");
+                          return;
+                        }
+
+                        if (eligibility.isEligible === false) {
+                          setActionMessage(eligibility.message ?? "You are not eligible for this plan.");
                           return;
                         }
 

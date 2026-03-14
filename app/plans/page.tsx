@@ -62,6 +62,7 @@ export default function PlansPage() {
   const [page, setPage] = useState(1);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isEmployer, setIsEmployer] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
@@ -80,6 +81,17 @@ export default function PlansPage() {
 
     const fetchPlans = async () => {
       setIsLoading(true);
+      if (typeof window !== "undefined") {
+        const status = window.sessionStorage.getItem("plan_create_status");
+        if (status) {
+          if (status === "success") {
+            setNoticeMessage("Plan created successfully.");
+          } else if (status.startsWith("error:")) {
+            setErrorMessage(status.replace("error:", ""));
+          }
+          window.sessionStorage.removeItem("plan_create_status");
+        }
+      }
       const { data: currentProfile } = await getCurrentUserProfile(supabase);
       setIsAdmin(currentProfile?.role === "admin");
       setIsEmployer(currentProfile?.role === "employer");
@@ -155,12 +167,14 @@ export default function PlansPage() {
         setEnrollmentStatusByPlan({});
         setEnrollmentIdByPlan({});
       }
-      setErrorMessage(null);
+      if (!errorMessage) {
+        setErrorMessage(null);
+      }
       setIsLoading(false);
     };
 
     fetchPlans();
-  }, []);
+  }, [errorMessage]);
 
   async function handleDeletePlan(planId: string) {
     const shouldDelete = window.confirm("Delete this insurance plan?");
@@ -383,6 +397,7 @@ export default function PlansPage() {
       </Card>
 
       {isLoading ? <p className="text-sm text-neutral-400">Loading plans...</p> : null}
+      {noticeMessage ? <p className="text-sm text-emerald-300">{noticeMessage}</p> : null}
       {errorMessage ? <p className="text-sm text-red-300">{errorMessage}</p> : null}
 
       {!isLoading && !errorMessage ? (

@@ -98,11 +98,6 @@ export function MainLayout({ children }: MainLayoutProps) {
       window.sessionStorage.removeItem("insuretech_profile_cache_v1");
       window.localStorage.removeItem("insuretech_profile_cache_v1");
     }
-
-    const supabase = createSupabaseClient();
-    const signOutPromise = signOut(supabase).catch(() => null);
-    const timeoutPromise = new Promise((resolve) => setTimeout(resolve, 800));
-    await Promise.race([signOutPromise, timeoutPromise]);
     clearSupabaseAuthStorage();
 
     router.replace("/sign-in");
@@ -115,6 +110,9 @@ export function MainLayout({ children }: MainLayoutProps) {
         }
       }, 3000);
     }
+
+    const supabase = createSupabaseClient();
+    void signOut(supabase).catch(() => null);
   }
 
   const navLinks = baseNavLinks;

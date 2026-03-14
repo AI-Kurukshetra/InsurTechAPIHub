@@ -52,6 +52,10 @@ export default function EditPlanPage() {
   const [includesDental, setIncludesDental] = useState(false);
   const [includesVision, setIncludesVision] = useState(false);
   const [includesTelemedicine, setIncludesTelemedicine] = useState(false);
+  const [minAge, setMinAge] = useState("");
+  const [maxAge, setMaxAge] = useState("");
+  const [requiresNonSmoker, setRequiresNonSmoker] = useState(false);
+  const [maxDependents, setMaxDependents] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -69,7 +73,7 @@ export default function EditPlanPage() {
       const { data: ownershipData, error: ownershipError } = await supabase
         .from("insurance_plans")
         .select(
-          "id, name, carrier, premium, deductible, coverage_type, network_type, copay, out_of_pocket_max, prescription_coverage, includes_dental, includes_vision, includes_telemedicine, created_by",
+          "id, name, carrier, premium, deductible, coverage_type, network_type, copay, out_of_pocket_max, prescription_coverage, includes_dental, includes_vision, includes_telemedicine, min_age, max_age, requires_non_smoker, max_dependents, created_by",
         )
         .eq("id", planId)
         .maybeSingle<PlanRecord>();
@@ -85,7 +89,7 @@ export default function EditPlanPage() {
         const { data: fallbackData, error: fallbackError } = await supabase
           .from("insurance_plans")
           .select(
-            "id, name, carrier, premium, deductible, coverage_type, network_type, copay, out_of_pocket_max, prescription_coverage, includes_dental, includes_vision, includes_telemedicine",
+            "id, name, carrier, premium, deductible, coverage_type, network_type, copay, out_of_pocket_max, prescription_coverage, includes_dental, includes_vision, includes_telemedicine, min_age, max_age, requires_non_smoker, max_dependents",
           )
           .eq("id", planId)
           .maybeSingle();
@@ -136,6 +140,10 @@ export default function EditPlanPage() {
       setIncludesDental(data.includes_dental);
       setIncludesVision(data.includes_vision);
       setIncludesTelemedicine(data.includes_telemedicine);
+      setMinAge(data.min_age ? String(data.min_age) : "");
+      setMaxAge(data.max_age ? String(data.max_age) : "");
+      setRequiresNonSmoker(Boolean(data.requires_non_smoker));
+      setMaxDependents(data.max_dependents ? String(data.max_dependents) : "");
       setIsLoading(false);
     };
 
@@ -150,6 +158,9 @@ export default function EditPlanPage() {
     const deductibleValue = Number(deductible);
     const copayValue = Number(copay);
     const outOfPocketMaxValue = Number(outOfPocketMax);
+    const minAgeValue = minAge ? Number(minAge) : null;
+    const maxAgeValue = maxAge ? Number(maxAge) : null;
+    const maxDependentsValue = maxDependents ? Number(maxDependents) : null;
     const carrierName =
       carrierMode === "select"
         ? carriers.find((item) => item.id === selectedCarrierId)?.name ?? ""
@@ -167,7 +178,11 @@ export default function EditPlanPage() {
       premiumValue < 0 ||
       deductibleValue < 0 ||
       copayValue < 0 ||
-      outOfPocketMaxValue < 0
+      outOfPocketMaxValue < 0 ||
+      (minAge && (Number.isNaN(minAgeValue) || minAgeValue < 0 || minAgeValue > 120)) ||
+      (maxAge && (Number.isNaN(maxAgeValue) || maxAgeValue < 0 || maxAgeValue > 120)) ||
+      (minAgeValue !== null && maxAgeValue !== null && minAgeValue > maxAgeValue) ||
+      (maxDependents && (Number.isNaN(maxDependentsValue) || maxDependentsValue < 0 || maxDependentsValue > 20))
     ) {
       setErrorMessage("Please provide valid benefit details. Numeric fields must be non-negative.");
       return;
@@ -190,6 +205,10 @@ export default function EditPlanPage() {
         includes_dental: includesDental,
         includes_vision: includesVision,
         includes_telemedicine: includesTelemedicine,
+        min_age: minAgeValue,
+        max_age: maxAgeValue,
+        requires_non_smoker: requiresNonSmoker,
+        max_dependents: maxDependentsValue,
       },
       { id: planId },
       supabase,
@@ -343,6 +362,37 @@ export default function EditPlanPage() {
                 />
                 Includes Telemedicine
               </label>
+            </div>
+
+            <div className="rounded-xl border border-neutral-800 bg-neutral-950/60 p-4">
+              <p className="text-sm font-medium text-neutral-100">Eligibility Rules (optional)</p>
+              <div className="mt-3 grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="minAge">Minimum Age</Label>
+                  <Input id="minAge" type="number" value={minAge} onChange={(event) => setMinAge(event.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="maxAge">Maximum Age</Label>
+                  <Input id="maxAge" type="number" value={maxAge} onChange={(event) => setMaxAge(event.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="maxDependents">Max Dependents</Label>
+                  <Input
+                    id="maxDependents"
+                    type="number"
+                    value={maxDependents}
+                    onChange={(event) => setMaxDependents(event.target.value)}
+                  />
+                </div>
+                <label className="flex items-center gap-2 text-sm text-neutral-300">
+                  <input
+                    type="checkbox"
+                    checked={requiresNonSmoker}
+                    onChange={(event) => setRequiresNonSmoker(event.target.checked)}
+                  />
+                  Requires Non-Smoker
+                </label>
+              </div>
             </div>
 
             {errorMessage ? (
